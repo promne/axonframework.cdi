@@ -30,6 +30,7 @@ import org.axonframework.config.Configuration;
 import org.axonframework.config.Configurer;
 import org.axonframework.config.DefaultConfigurer;
 import org.axonframework.config.EventHandlingConfiguration;
+import org.axonframework.config.SagaConfiguration;
 import org.axonframework.eventsourcing.eventstore.EventStorageEngine;
 
 public class ApplicationStartupExtension implements Extension {
@@ -43,6 +44,8 @@ public class ApplicationStartupExtension implements Extension {
     private List<AnnotatedType<?>> commandHandlerList = new ArrayList<>();
 
     private List<AnnotatedType<?>> eventHandlerList = new ArrayList<>();
+
+    private List<AnnotatedType<?>> sagaHandlerList = new ArrayList<>();
 
     private Producer<Configurer> configurerProducer;
 
@@ -73,6 +76,15 @@ public class ApplicationStartupExtension implements Extension {
         if (AxonUtils.isEventHandler(at.getJavaClass()) && !AxonUtils.isAnnotatedAggregateRoot(at.getJavaClass())) {
             log.info("Found event handler " + at.getJavaClass());
             eventHandlerList.add(at);
+            // pat.veto();
+        }
+    }
+
+    <X> void processSagaHandlerTypes(@Observes final ProcessAnnotatedType<X> pat, final BeanManager bm) {
+        AnnotatedType<X> at = pat.getAnnotatedType();
+        if (AxonUtils.isAnnotatedSaga(at.getJavaClass())) {
+            log.info("Found saga handler " + at.getJavaClass());
+            sagaHandlerList.add(at);
             // pat.veto();
         }
     }
@@ -154,6 +166,8 @@ public class ApplicationStartupExtension implements Extension {
             configurer = DefaultConfigurer.defaultConfiguration();
         }
 
+        configurer.configureResourceInjector(c -> new AxonCdiResourceInjector(bm));
+
         for (Pair<Type, Producer<?>> cp : axonComponentProducers) {
             @SuppressWarnings("unchecked")
             Class<Object> cl = (Class<Object>) cp.getKey();
@@ -166,6 +180,9 @@ public class ApplicationStartupExtension implements Extension {
             }
         }
 
+        // simple saga
+        sagaHandlerList.stream().map(AnnotatedType::getJavaClass).map(SagaConfiguration::trackingSagaManager).forEach(configurer::registerModule);
+
         EventHandlingConfiguration ehConfiguration;
         if (this.eventHandlingConfigurationProducer != null) {
             ehConfiguration = this.eventHandlingConfigurationProducer.produce(bm.createCreationalContext(null));
@@ -173,7 +190,6 @@ public class ApplicationStartupExtension implements Extension {
             ehConfiguration = new EventHandlingConfiguration();
         }
         eventHandlerList.stream().map(AnnotatedType::getJavaClass).forEach(c -> ehConfiguration.registerEventHandler(config -> CDI.current().select(c).get()));
-
         configurer.registerModule(ehConfiguration);
 
         aggregateRootList.stream().map(AnnotatedType::getJavaClass).forEach(configurer::configureAggregate);
