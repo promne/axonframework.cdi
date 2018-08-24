@@ -4,7 +4,9 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.logging.Logger;
+
 import javax.enterprise.context.spi.CreationalContext;
 import javax.enterprise.event.Observes;
 import javax.enterprise.inject.spi.AfterBeanDiscovery;
@@ -17,6 +19,7 @@ import javax.enterprise.inject.spi.Extension;
 import javax.enterprise.inject.spi.ProcessAnnotatedType;
 import javax.enterprise.inject.spi.ProcessProducer;
 import javax.enterprise.inject.spi.Producer;
+
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.reflect.TypeUtils;
 import org.apache.commons.lang3.tuple.Pair;
@@ -119,8 +122,11 @@ public class ApplicationStartupExtension implements Extension {
 
             @Override
             public Repository<T> create(final Bean<Repository<T>> bean, final CreationalContext<Repository<T>> creationalContext) {
-                Type repositoryType = bean.getTypes().iterator().next();
-                Type aggregateType = ParameterizedType.class.cast(repositoryType).getActualTypeArguments()[0];
+                Optional<ParameterizedType> repositoryType = bean.getTypes().stream().filter(ParameterizedType.class::isInstance).map(ParameterizedType.class::cast).findFirst();
+                if (!repositoryType.isPresent()) {
+                	throw new IllegalStateException("Unable to determine repository type from types " + bean.getTypes());
+                }
+                Type aggregateType = repositoryType.get().getActualTypeArguments()[0];
                 @SuppressWarnings("unchecked")
                 Class<T> aggregateClass = (Class<T>) aggregateType;
                 return getAxonConfiguration().repository(aggregateClass);
